@@ -1,0 +1,1 @@
+"""KOSEN Slack bot."""

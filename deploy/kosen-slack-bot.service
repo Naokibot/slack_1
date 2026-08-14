@@ -1,0 +1,23 @@
+[Unit]
+Description=KOSEN Slack Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kosenbot
+Group=kosenbot
+WorkingDirectory=/opt/kosen-slack-bot
+EnvironmentFile=/opt/kosen-slack-bot/.env
+ExecStart=/opt/kosen-slack-bot/.venv/bin/python -m kosen_bot
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/kosen-slack-bot/data
+
+[Install]
+WantedBy=multi-user.target
