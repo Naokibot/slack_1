@@ -11,7 +11,6 @@ from .config import Config
 from .countdown import CountdownService
 from .db import Database
 from .health import HealthServer
-from .jma import JmaMonitor
 from .notifier import SlackNotifier
 from .reminders import ReminderService
 from .slack_app import register_handlers
@@ -37,29 +36,16 @@ def main() -> None:
     app = App(token=config.slack_bot_token)
     notifier = SlackNotifier(app.client)
 
-    jma = JmaMonitor(
-        db=db,
-        post_earthquake=lambda text: notifier.post(config.earthquake_channel_id, text),
-        post_warning=lambda text: notifier.post(config.shizuoka_alert_channel_id, text),
-        post_admin=lambda text: notifier.post(config.admin_channel_id, text),
-        max_backfill_hours=config.jma_backfill_hours,
-    )
-
     def runtime_status() -> dict[str, object]:
-        return {
-            "status": "ok",
-            "jma_last_success": jma.last_success.strftime("%Y-%m-%d %H:%M:%S") if jma.last_success else None,
-        }
+        return {"status": "ok"}
 
-    register_handlers(app, config, db, countdown, reminders, runtime_status)
+    register_handlers(app, config, db, countdown, reminders)
 
     workers = WorkerSupervisor(
         countdown=countdown,
         reminders=reminders,
-        jma=jma,
         post_countdown=lambda text: notifier.post(config.countdown_channel_id, text),
         post_reminder=lambda channel, text: notifier.post(channel or config.reminder_channel_id, text),
-        jma_poll_seconds=config.jma_poll_seconds,
         reminder_poll_seconds=config.reminder_poll_seconds,
     )
     health = HealthServer(config.health_port, runtime_status)
@@ -72,7 +58,6 @@ def main() -> None:
         logging.getLogger(__name__).info("Shutting down after signal %s", signum)
         workers.stop()
         health.stop()
-        jma.client.close()
         handler.close()
         sys.exit(0)
 

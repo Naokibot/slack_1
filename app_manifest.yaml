@@ -4,7 +4,7 @@ _metadata:
 
 display_information:
   name: KOSEN Assistant
-  description: 高専入試カウントダウン・予定・防災通知Bot
+  description: 高専入試カウントダウン・予定リマインダーBot
   background_color: "#1f2937"
 
 features:
@@ -19,10 +19,6 @@ features:
     - command: /reminder
       description: 予定リマインダーの追加・一覧・編集・削除
       usage_hint: "add YYYY-MM-DD HH:MM 予定 | list | today | tomorrow | edit ID | delete ID"
-      should_escape: false
-    - command: /disaster
-      description: 防災監視の状態を確認
-      usage_hint: "status"
       should_escape: false
     - command: /bot-status
       description: Botの稼働状態を確認

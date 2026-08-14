@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<Report>
-  <Control><Title>気象警報・注意報</Title><PublishingOffice>名古屋地方気象台</PublishingOffice></Control>
-  <Head><ReportDateTime>2026-08-14T18:20:00+09:00</ReportDateTime></Head>
-  <Body><Warning type="気象警報・注意報（市町村等）">
-    <Item><Kind><Name>大雨警報</Name><Status>発表</Status></Kind><Area><Name>名古屋市</Name></Area></Item>
-  </Warning></Body>
-</Report>

@@ -3,11 +3,9 @@ from __future__ import annotations
 from datetime import timedelta
 import logging
 import threading
-import time
 from typing import Callable
 
 from .countdown import CountdownService
-from .jma import JmaMonitor
 from .reminders import ReminderService
 from .timeutil import now_jst
 
@@ -19,27 +17,30 @@ class WorkerSupervisor:
         self,
         countdown: CountdownService,
         reminders: ReminderService,
-        jma: JmaMonitor,
         post_countdown: Callable[[str], None],
         post_reminder: Callable[[str, str], None],
-        jma_poll_seconds: int,
         reminder_poll_seconds: int,
     ):
         self.countdown = countdown
         self.reminders = reminders
-        self.jma = jma
         self.post_countdown = post_countdown
         self.post_reminder = post_reminder
-        self.jma_poll_seconds = jma_poll_seconds
         self.reminder_poll_seconds = reminder_poll_seconds
         self.stop_event = threading.Event()
         self.threads: list[threading.Thread] = []
 
     def start(self) -> None:
         self.threads = [
-            threading.Thread(target=self._guarded, args=("countdown", self._countdown_loop), daemon=True),
-            threading.Thread(target=self._guarded, args=("reminders", self._reminder_loop), daemon=True),
-            threading.Thread(target=self._guarded, args=("jma", self._jma_loop), daemon=True),
+            threading.Thread(
+                target=self._guarded,
+                args=("countdown", self._countdown_loop),
+                daemon=True,
+            ),
+            threading.Thread(
+                target=self._guarded,
+                args=("reminders", self._reminder_loop),
+                daemon=True,
+            ),
         ]
         for thread in self.threads:
             thread.start()
@@ -74,26 +75,28 @@ class WorkerSupervisor:
             current = now_jst()
             for reminder in self.reminders.due(current):
                 late = current - reminder.scheduled_at
-                prefix = "⏰ *遅延したリマインダー*" if late >= timedelta(minutes=1) else "⏰ *リマインダー*"
-                lines = [prefix, "", reminder.title, "", f"📅 {reminder.scheduled_at:%Y年%m月%d日}", f"🕖 {reminder.scheduled_at:%H:%M}"]
+                prefix = (
+                    "⏰ *遅延したリマインダー*"
+                    if late >= timedelta(minutes=1)
+                    else "⏰ *リマインダー*"
+                )
+                lines = [
+                    prefix,
+                    "",
+                    reminder.title,
+                    "",
+                    f"📅 {reminder.scheduled_at:%Y年%m月%d日}",
+                    f"🕖 {reminder.scheduled_at:%H:%M}",
+                ]
                 if late >= timedelta(minutes=1):
-                    lines.extend(["", "Bot停止中または通信障害中に予定時刻を過ぎました。"])
+                    lines.extend(
+                        ["", "Bot停止中または通信障害中に予定時刻を過ぎました。"]
+                    )
                 self.post_reminder(reminder.channel_id, "\n".join(lines))
                 self.reminders.db.mark_reminder_notified(reminder.id, current)
                 LOGGER.info("Reminder %s sent", reminder.id)
+
             expired = self.reminders.expire_stale(current)
             if expired:
                 LOGGER.warning("Expired %s stale reminder(s)", expired)
             self.stop_event.wait(self.reminder_poll_seconds)
-
-    def _jma_loop(self) -> None:
-        last_long_poll = 0.0
-        while not self.stop_event.is_set():
-            include_long = time.monotonic() - last_long_poll >= 3600
-            try:
-                self.jma.poll(include_long_feed=include_long)
-            except Exception:
-                LOGGER.exception("JMA poll failed")
-            if include_long:
-                last_long_poll = time.monotonic()
-            self.stop_event.wait(self.jma_poll_seconds)
