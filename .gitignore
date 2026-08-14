@@ -1,9 +1,6 @@
-.env
-.venv/
-__pycache__/
-.pytest_cache/
-*.py[cod]
-*.sqlite3
-*.db
-data/*
-!data/.gitkeep
+.DS_Store
+.vscode/
+.slack/apps.dev.json
+.slack/apps.json
+.slack/*.local.json
+coverage/

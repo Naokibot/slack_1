@@ -1,0 +1,17 @@
+import { TriggerTypes } from "deno-slack-api/mod.ts";
+import { Trigger } from "deno-slack-api/types.ts";
+import { ReminderListWorkflow } from "../workflows.ts";
+
+const trigger: Trigger<typeof ReminderListWorkflow.definition> = {
+  type: TriggerTypes.Shortcut,
+  name: "予定を見る",
+  description: "今後・今日・明日の予定を表示",
+  workflow: `#/workflows/${ReminderListWorkflow.definition.callback_id}`,
+  inputs: {
+    interactivity: { value: "{{data.interactivity}}" },
+    channel_id: { value: "{{data.channel_id}}" },
+    user_id: { value: "{{data.user_id}}" },
+  },
+};
+
+export default trigger;
