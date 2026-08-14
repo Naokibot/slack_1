@@ -1,0 +1,12 @@
+{
+  "imports": {
+    "deno-slack-sdk/": "https://deno.land/x/deno_slack_sdk@2.15.0/",
+    "deno-slack-api/": "https://deno.land/x/deno_slack_api@2.8.0/"
+  },
+  "fmt": {
+    "lineWidth": 100
+  },
+  "tasks": {
+    "check": "deno fmt --check && deno lint && deno check manifest.ts && deno test"
+  }
+}
