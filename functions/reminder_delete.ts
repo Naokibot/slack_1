@@ -41,7 +41,9 @@ export default SlackFunction(ReminderDeleteFunction, async ({ inputs, client }) 
       updated_at: Date.now(),
     },
   });
-  if (!saved.ok) return { error: `削除状態を保存できませんでした: ${saved.error ?? "unknown_error"}` };
+  if (!saved.ok) {
+    return { error: `削除状態を保存できませんでした: ${saved.error ?? "unknown_error"}` };
+  }
 
   await client.chat.postEphemeral({
     channel: inputs.channel_id,

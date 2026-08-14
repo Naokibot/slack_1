@@ -16,7 +16,10 @@ export const KosenStatusFunction = DefineFunction({
 });
 
 export default SlackFunction(KosenStatusFunction, async ({ inputs, client }) => {
-  const result = await client.apps.datastore.get({ datastore: SettingsDatastore.name, id: "global" });
+  const result = await client.apps.datastore.get({
+    datastore: SettingsDatastore.name,
+    id: "global",
+  });
   if (!result.item) {
     await client.chat.postEphemeral({
       channel: inputs.channel_id,

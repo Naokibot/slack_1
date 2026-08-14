@@ -38,7 +38,9 @@ export function jstDateParts(now = new Date()): DateParts {
 }
 
 export function dateKey(parts: DateParts): string {
-  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${
+    String(parts.day).padStart(2, "0")
+  }`;
 }
 
 export function jstDateTime(date: string, time: string): Date {
