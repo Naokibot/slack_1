@@ -1,6 +1,6 @@
 import { DefineFunction, Schema, SlackFunction } from "deno-slack-sdk/mod.ts";
 import SettingsDatastore from "../datastores/settings.ts";
-import { nextJstOccurrence, parseDate, parseTime } from "../lib/time.ts";
+import { daysUntil, nextJstOccurrence, parseDate, parseTime } from "../lib/time.ts";
 
 export const KosenSettingsFunction = DefineFunction({
   callback_id: "kosen_settings_function",
@@ -22,15 +22,29 @@ export default SlackFunction(KosenSettingsFunction, async ({ inputs, client }) =
   try {
     parseDate(inputs.exam_date);
     parseTime(inputs.notify_time);
+    if (daysUntil(inputs.exam_date) < 0) {
+      return { error: "試験日は今日以降の日付を指定してください。" };
+    }
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error) };
   }
 
-  const previous = await client.apps.datastore.get({ datastore: SettingsDatastore.name, id: "global" });
+  const previous = await client.apps.datastore.get({
+    datastore: SettingsDatastore.name,
+    id: "global",
+  });
+  if (!previous.ok) {
+    return { error: `現在の設定を取得できませんでした: ${previous.error ?? "unknown_error"}` };
+  }
+
   const oldItem = previous.item ?? {};
+  const ownerUserId = String(oldItem.owner_user_id ?? inputs.user_id);
+  if (oldItem.owner_user_id && ownerUserId !== inputs.user_id) {
+    return { error: "高専カウントダウンの設定は、最初に設定したユーザーだけが変更できます。" };
+  }
+
   const revision = Number(oldItem.revision ?? 0) + 1;
   const start = nextJstOccurrence(inputs.notify_time);
-
   const created = await client.workflows.triggers.create({
     type: "scheduled",
     name: "KOSEN daily countdown",
@@ -55,6 +69,7 @@ export default SlackFunction(KosenSettingsFunction, async ({ inputs, client }) =
       exam_date: inputs.exam_date,
       notify_time: inputs.notify_time,
       channel_id: inputs.notification_channel,
+      owner_user_id: ownerUserId,
       revision,
       daily_trigger_id: created.trigger.id,
       last_countdown_date: String(oldItem.last_countdown_date ?? ""),
@@ -68,16 +83,20 @@ export default SlackFunction(KosenSettingsFunction, async ({ inputs, client }) =
 
   let oldTriggerWarning = "";
   if (typeof oldItem.daily_trigger_id === "string" && oldItem.daily_trigger_id) {
-    const removed = await client.workflows.triggers.delete({ trigger_id: oldItem.daily_trigger_id });
+    const removed = await client.workflows.triggers.delete({
+      trigger_id: oldItem.daily_trigger_id,
+    });
     if (!removed.ok) {
-      oldTriggerWarning = "\n⚠️ 古いTriggerの削除に失敗しましたが、旧設定からの通知は無効化されます。";
+      oldTriggerWarning =
+        "\n⚠️ 古いTriggerの削除に失敗しましたが、旧設定からの通知はrevisionで無効化されます。";
     }
   }
 
   await client.chat.postEphemeral({
     channel: inputs.response_channel,
     user: inputs.user_id,
-    text: `✅ *高専カウントダウンを設定しました*\n\n試験日：${inputs.exam_date}\n毎日：${inputs.notify_time}\n通知先：<#${inputs.notification_channel}>${oldTriggerWarning}`,
+    text:
+      `✅ *高専カウントダウンを設定しました*\n\n試験日：${inputs.exam_date}\n毎日：${inputs.notify_time}\n通知先：<#${inputs.notification_channel}>${oldTriggerWarning}`,
   });
 
   return { outputs: {} };

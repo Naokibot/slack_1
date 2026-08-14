@@ -1,7 +1,7 @@
 import { Manifest } from "deno-slack-sdk/mod.ts";
 
-import SettingsDatastore from "./datastores/settings.ts";
 import RemindersDatastore from "./datastores/reminders.ts";
+import SettingsDatastore from "./datastores/settings.ts";
 import {
   KosenDailyWorkflow,
   KosenSettingsWorkflow,
@@ -28,6 +28,7 @@ export default Manifest({
   botScopes: [
     "commands",
     "chat:write",
+    "chat:write.public",
     "datastore:read",
     "datastore:write",
     "triggers:read",

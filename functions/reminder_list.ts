@@ -43,6 +43,7 @@ export default SlackFunction(ReminderListFunction, async ({ inputs, client }) =>
   }
 
   const items = (result.items ?? [])
+    .filter((item) => String(item.user_id) === inputs.user_id)
     .filter((item) => Number(item.scheduled_at) > now.getTime())
     .filter((item) =>
       range === "today"
@@ -61,6 +62,11 @@ export default SlackFunction(ReminderListFunction, async ({ inputs, client }) =>
         `• ${item.scheduled_date} ${item.scheduled_time}  ${item.title}\n  ID: \`${item.id}\``
       ).join("\n\n")
     }`;
-  await client.chat.postEphemeral({ channel: inputs.channel_id, user: inputs.user_id, text });
+
+  await client.chat.postEphemeral({
+    channel: inputs.channel_id,
+    user: inputs.user_id,
+    text,
+  });
   return { outputs: {} };
 });

@@ -1,242 +1,147 @@
 # KOSEN Assistant for Slack
 
-高専入試までの毎日カウントダウンと、日時指定の予定リマインダーをSlackで使うためのBotです。
+高専入試カウントダウンと予定リマインダーを、**Run On Slack Infrastructure (ROSI)** 上で動かすSlack Workflow Appです。
 
-防災監視機能は削除済みです。現在は学習・予定管理に機能を絞っています。
+自宅サーバー、VPS、Docker、Python常駐プロセス、SQLite、Socket Modeは使いません。Slack Developer Sandboxで約6か月使う個人向け構成を想定しています。
 
-## 実装済み機能
+## 機能
 
-- 高専入試日 `2027-02-14` を初期値に、毎日07:00以降に1回だけカウントダウン通知
-- 07:00にBotが止まっていても、同日中に復旧すれば未送信分を1回通知
-- `/kosen`
-- `/kosen set-date YYYY-MM-DD`
-- `/kosen set-time HH:MM`
-- 「予定・日付・時間」をSlackモーダルから登録
-- `/reminder add YYYY-MM-DD HH:MM 予定` で直接登録
-- `today` / `tomorrow` / `M/D` の簡易日付指定
-- `/reminder list`
-- `/reminder today`
-- `/reminder tomorrow`
-- `/reminder edit ID`
-- `/reminder delete ID`
-- Bot停止中に予定時刻を過ぎた場合、30分以内なら遅延通知
-- SQLiteによる設定・予定の永続化
-- Docker `restart: unless-stopped`
-- systemd `Restart=always`
-- `/healthz` ヘルスチェック
-- pytest自動テスト
+- 高専入試日までの残り日数を毎日自動投稿
+- 初期想定: `2027-02-14`、毎日 `07:00`（Asia/Tokyo）
+- 試験日・通知時刻・通知先チャンネルをSlackフォームから変更
+- 同じ日にカウントダウンを二重投稿しない
+- 予定、日付、時刻、通知先をSlackフォームから登録
+- 予定一覧（all / today / tomorrow）
+- 予定の編集・削除
+- 予定はSlack Datastoreに保存
+- 100日以内の予定はSlack Scheduled Messageとして予約
+- 100日より先の予定はDatastoreで待機し、日次処理が100日以内になった時点で自動予約
+- 予定の閲覧・編集・削除は登録した本人に限定
 
-## 仕組み
+## 必要なもの
 
-Slackとの通信は **Socket Mode** を使用します。公開HTTPSエンドポイントを用意しなくても、Bot側からSlackへWebSocket接続してSlash Commandやモーダル操作を受け取れます。
+- Slack Developer Sandbox
+- Slack CLI
+- Deno
+- Git
 
-現在の実装はPython + Slack Bolt + SQLiteです。
+Bot用サーバーやクラウドVMは不要です。
 
-## 1. Slack Appを作る
+## 1. リポジトリを取得
 
-Slack App管理画面で **Create New App → From an app manifest** を選び、このリポジトリの `app_manifest.yaml` を使用してください。
-
-### Socket Mode
-
-1. Slack Appの **Socket Mode** をONにする
-2. App-Level Tokenを作成する
-3. Tokenのscopeに `connections:write` を付ける
-4. `xapp-...` で始まるトークンを控える
-
-### OAuth
-
-Bot Token Scopes:
-
-- `chat:write`
-- `commands`
-
-ワークスペースへAppをインストールし、`xoxb-...` のBot Tokenを取得します。
-
-### チャンネルへBotを追加
-
-高専カウントダウンとリマインダーの投稿先チャンネルにBotを招待してください。
-
-## 2. 環境変数
-
-```bash
-cp .env.example .env
+```powershell
+git clone https://github.com/Naokibot/slack_1.git
+cd slack_1
 ```
 
-`.env` を編集します。
+## 2. ローカル検証
 
-```env
-SLACK_BOT_TOKEN=xoxb-...
-SLACK_APP_TOKEN=xapp-...
-
-COUNTDOWN_CHANNEL_ID=C0123456789
-REMINDER_CHANNEL_ID=C0123456789
-
-DATABASE_PATH=data/bot.sqlite3
-KOSEN_EXAM_DATE=2027-02-14
-KOSEN_NOTIFY_TIME=07:00
-REMINDER_POLL_SECONDS=15
-HEALTH_PORT=8080
+```powershell
+deno task check
 ```
 
-`ADMIN_USER_IDS` を設定すると、`/kosen set-date` と `/kosen set-time` を指定ユーザーだけに制限できます。空欄なら全員が変更できます。
+このタスクはDenoの整形、lint、型チェック、単体テストを実行します。
 
-## 3. Dockerで24時間稼働
+## 3. Slack CLIでSandboxへログイン
 
-常時起動しているLinuxホストやVPSで実行する場合:
-
-```bash
-docker compose up -d --build
+```powershell
+slack login
 ```
 
-確認:
+表示された `/slackauthticket ...` をDeveloper Sandbox内のSlackへ貼り付け、表示されたchallenge codeをターミナルへ入力します。
 
-```bash
-docker compose ps
-docker compose logs -f bot
-curl http://127.0.0.1:8080/healthz
+ログイン確認:
+
+```powershell
+slack auth list
 ```
 
-`docker-compose.yml` は `restart: unless-stopped` を設定しているため、Botプロセスの異常終了やホスト再起動後にも自動復旧できます。
+## 4. ROSIへデプロイ
 
-GitHubリポジトリへ置くだけではBotは常時実行されません。24時間稼働させる場合は、常時実行できるホストまたは対応するサーバーレス基盤が必要です。
-
-## 4. systemdで24時間稼働
-
-Dockerを使わない場合:
-
-```bash
-sudo useradd --system --home /opt/kosen-slack-bot --shell /usr/sbin/nologin kosenbot
-sudo mkdir -p /opt/kosen-slack-bot
-sudo chown -R kosenbot:kosenbot /opt/kosen-slack-bot
+```powershell
+slack deploy
 ```
 
-リポジトリを `/opt/kosen-slack-bot` に配置し、仮想環境を作成します。
+対象を聞かれたらDeveloper Sandboxを選択します。デプロイ後はPCを24時間起動しておく必要はありません。
 
-```bash
-cd /opt/kosen-slack-bot
-python3.12 -m venv .venv
-.venv/bin/pip install .
-cp .env.example .env
+## 5. 操作用Link Triggerを作成
+
+```powershell
+slack trigger create --trigger-def triggers/kosen_settings.ts
+slack trigger create --trigger-def triggers/kosen_status.ts
+slack trigger create --trigger-def triggers/reminder_add.ts
+slack trigger create --trigger-def triggers/reminder_list.ts
+slack trigger create --trigger-def triggers/reminder_edit.ts
+slack trigger create --trigger-def triggers/reminder_delete.ts
 ```
 
-サービス登録:
+各コマンドが返したURLを使うチャンネルへ貼るか、チャンネルのブックマークへ登録してください。
 
-```bash
-sudo cp deploy/kosen-slack-bot.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now kosen-slack-bot
-sudo systemctl status kosen-slack-bot
-```
+## 6. 最初の設定
 
-## 5. 高専入試コマンド
+「高専カウントダウン設定」のLink Triggerを開き、次を入力します。
+
+- 試験日: `2027-02-14`
+- 通知時刻: `07:00`
+- 通知先: カウントダウンを投稿したいチャンネル
+
+初回設定を行ったユーザーが設定オーナーになります。以後、高専カウントダウンの全体設定を変更できるのはそのユーザーだけです。
+
+## 予定リマインダー
+
+「予定を追加」から次を入力します。
+
+- 予定名
+- 日付 (`YYYY-MM-DD`)
+- 時刻 (`HH:MM`)
+- 通知先チャンネル
+
+登録後に予定IDが表示されます。編集・削除にはこのIDを使います。「予定を見る」でIDを再確認できます。
+
+## アーキテクチャ
 
 ```text
-/kosen
-/kosen set-date 2027-02-14
-/kosen set-time 07:00
+Slack Developer Sandbox
+  ├─ Link Trigger + OpenForm
+  ├─ Workflow
+  ├─ Custom Function (Deno / TypeScript)
+  ├─ Slack Datastore
+  ├─ Scheduled Trigger     -> 毎日の高専カウントダウン / 予定保守
+  └─ Scheduled Message     -> 指定日時の予定通知
 ```
 
-`/kosen` は現在日付と試験日の差から残り日数を毎回計算します。
+### Datastore
 
-試験前日は専用メッセージ、試験当日は当日用メッセージを表示します。試験終了後は毎日の自動通知を停止します。
-
-## 6. リマインダー
-
-モーダルを開く:
-
-```text
-/reminder add
-```
-
-モーダルには以下の3項目があります。
-
-- 予定
-- 日付
-- 時間
-
-直接入力:
-
-```text
-/reminder add 2026-08-20 19:00 数学の過去問を解く
-/reminder add today 19:00 英単語
-/reminder add tomorrow 20:00 理科
-/reminder add 8/20 19:00 英語
-```
-
-一覧・編集・削除:
-
-```text
-/reminder list
-/reminder today
-/reminder tomorrow
-/reminder edit 15
-/reminder delete 15
-```
-
-予定は日時が近い順に表示します。過去の完了済みリマインダーは通常の一覧には表示しません。
-
-## 7. Bot状態
-
-```text
-/bot-status
-```
-
-高専カウントダウン、予定リマインダー、DBの状態を表示します。
-
-使い方:
-
-```text
-/kosen-help
-/help
-```
-
-## 8. データ
-
-SQLite DBの標準保存先:
-
-```text
-data/bot.sqlite3
-```
-
-保存される主な情報:
-
+`settings`
 - 高専入試日
-- 毎日のカウントダウン通知時刻
-- 最終カウントダウン通知日
-- リマインダー
-- リマインダー通知状態
+- 通知時刻
+- 通知チャンネル
+- 設定オーナー
+- Scheduled Trigger ID
+- revision
+- 最終送信日
 
-Botを再起動しても予定は保持されます。
+`reminders`
+- 予定ID
+- 予定名
+- 日付・時刻
+- 通知チャンネル
+- 登録ユーザー
+- 状態
+- Slack Scheduled Message ID
 
-## 9. テスト
+## 重要な運用上の注意
 
-```bash
-python -m pip install ".[test]"
-pytest
-python -m compileall -q kosen_bot
+- 通知先がプライベートチャンネルの場合は、アプリがそのチャンネルへ投稿できる状態にしてください。
+- Developer Sandboxの有効期間を超えて使う場合は、別のSandboxまたは利用可能なSlackプランへの移行が必要です。
+- `slack deploy` はSlackアカウントの認証が必要なため、リポジトリのCIだけでは本番Sandboxへの実デプロイまでは行いません。
+
+## 開発チェック
+
+GitHub Actionsとローカルの両方で次を実行します。
+
+```powershell
+deno task check
 ```
 
-テスト対象:
-
-- 高専入試までの日数計算
-- 試験前日・当日・試験終了後
-- JSTの日付処理
-- リマインダー登録
-- today / tomorrow / M/D
-- 予定一覧
-- 30分以内の遅延通知対象
-- 古い予定の失効
-- SQLite永続化
-
-## 10. 防災機能について
-
-以前実装していた以下の機能は削除しました。
-
-- 全国の震度5弱以上の地震監視
-- 静岡県の警報・特別警報監視
-- 気象庁XMLポーリング
-- `/disaster` コマンド
-- 地震・警報用DB状態
-- 防災用環境変数
-
-このBotは現在、防災情報の取得・監視・通知を行いません。
+GitHub Actionsが成功しているコミットをデプロイしてください。

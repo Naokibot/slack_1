@@ -31,20 +31,34 @@ export const ReminderEditFunction = DefineFunction({
 
 export default SlackFunction(ReminderEditFunction, async ({ inputs, client }) => {
   const id = inputs.reminder_id.trim();
-  const current = await client.apps.datastore.get({ datastore: RemindersDatastore.name, id });
-  if (!current.item || current.item.status !== "pending") {
+  const current = await client.apps.datastore.get({
+    datastore: RemindersDatastore.name,
+    id,
+  });
+  if (!current.ok) {
+    return { error: `予定を取得できませんでした: ${current.error ?? "unknown_error"}` };
+  }
+  if (
+    !current.item || current.item.status !== "pending" ||
+    String(current.item.user_id) !== inputs.user_id
+  ) {
     return { error: "編集できる予定が見つかりません。" };
   }
 
   const title = inputs.title.trim();
-  if (!title || title.length > 300) return { error: "予定は1〜300文字で入力してください。" };
+  if (!title || title.length > 300) {
+    return { error: "予定は1〜300文字で入力してください。" };
+  }
+
   let at: Date;
   try {
     at = jstDateTime(inputs.date, inputs.time);
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error) };
   }
-  if (at.getTime() <= Date.now() + 30_000) return { error: "未来の日時を指定してください。" };
+  if (at.getTime() <= Date.now() + 30_000) {
+    return { error: "未来の日時を指定してください。" };
+  }
 
   let newScheduledMessageId = "";
   let newState = "queued";
@@ -94,7 +108,18 @@ export default SlackFunction(ReminderEditFunction, async ({ inputs, client }) =>
       updated_at: Date.now(),
     },
   });
-  if (!saved.ok) return { error: `更新を保存できませんでした: ${saved.error ?? "unknown_error"}` };
+  if (!saved.ok) {
+    if (newScheduledMessageId) {
+      await client.chat.deleteScheduledMessage({
+        channel: inputs.notification_channel,
+        scheduled_message_id: newScheduledMessageId,
+      });
+    }
+    return {
+      error:
+        `更新を保存できませんでした: ${saved.error ?? "unknown_error"}。元のSlack予約は取り消されているため、予定を再登録してください。`,
+    };
+  }
 
   await client.chat.postEphemeral({
     channel: inputs.response_channel,

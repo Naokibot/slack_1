@@ -33,7 +33,9 @@ export const ReminderAddFunction = DefineFunction({
 
 export default SlackFunction(ReminderAddFunction, async ({ inputs, client }) => {
   const title = inputs.title.trim();
-  if (!title || title.length > 300) return { error: "予定は1〜300文字で入力してください。" };
+  if (!title || title.length > 300) {
+    return { error: "予定は1〜300文字で入力してください。" };
+  }
 
   let scheduled: Date;
   try {
@@ -52,8 +54,15 @@ export default SlackFunction(ReminderAddFunction, async ({ inputs, client }) => 
     expression_values: { ":pending": "pending" },
     limit: MAX_PENDING_REMINDERS,
   });
-  if ((pending.items?.length ?? 0) >= MAX_PENDING_REMINDERS) {
-    return { error: `未完了の予定は最大${MAX_PENDING_REMINDERS}件です。` };
+  if (!pending.ok) {
+    return { error: `予定件数を確認できませんでした: ${pending.error ?? "unknown_error"}` };
+  }
+
+  const ownPendingCount = (pending.items ?? []).filter(
+    (item) => String(item.user_id) === inputs.user_id,
+  ).length;
+  if (ownPendingCount >= MAX_PENDING_REMINDERS) {
+    return { error: `未完了の予定は1ユーザー最大${MAX_PENDING_REMINDERS}件です。` };
   }
 
   const id = crypto.randomUUID();

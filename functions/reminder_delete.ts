@@ -17,8 +17,17 @@ export const ReminderDeleteFunction = DefineFunction({
 
 export default SlackFunction(ReminderDeleteFunction, async ({ inputs, client }) => {
   const id = inputs.reminder_id.trim();
-  const current = await client.apps.datastore.get({ datastore: RemindersDatastore.name, id });
-  if (!current.item || current.item.status !== "pending") {
+  const current = await client.apps.datastore.get({
+    datastore: RemindersDatastore.name,
+    id,
+  });
+  if (!current.ok) {
+    return { error: `予定を取得できませんでした: ${current.error ?? "unknown_error"}` };
+  }
+  if (
+    !current.item || current.item.status !== "pending" ||
+    String(current.item.user_id) !== inputs.user_id
+  ) {
     return { error: "削除できる予定が見つかりません。" };
   }
 
@@ -38,10 +47,14 @@ export default SlackFunction(ReminderDeleteFunction, async ({ inputs, client }) 
       ...current.item,
       status: "deleted",
       revision: Number(current.item.revision ?? 0) + 1,
+      schedule_state: "cancelled",
+      scheduled_message_id: "",
       updated_at: Date.now(),
     },
   });
-  if (!saved.ok) return { error: `削除状態を保存できませんでした: ${saved.error ?? "unknown_error"}` };
+  if (!saved.ok) {
+    return { error: `削除状態を保存できませんでした: ${saved.error ?? "unknown_error"}` };
+  }
 
   await client.chat.postEphemeral({
     channel: inputs.channel_id,

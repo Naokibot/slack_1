@@ -8,6 +8,7 @@ const SettingsDatastore = DefineDatastore({
     exam_date: { type: Schema.types.string },
     notify_time: { type: Schema.types.string },
     channel_id: { type: Schema.slack.types.channel_id },
+    owner_user_id: { type: Schema.slack.types.user_id },
     revision: { type: Schema.types.number },
     daily_trigger_id: { type: Schema.types.string },
     last_countdown_date: { type: Schema.types.string },

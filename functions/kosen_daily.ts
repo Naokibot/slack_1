@@ -1,9 +1,11 @@
 import { DefineFunction, Schema, SlackFunction } from "deno-slack-sdk/mod.ts";
-import SettingsDatastore from "../datastores/settings.ts";
 import RemindersDatastore from "../datastores/reminders.ts";
-import { countdownMessage } from "../lib/messages.ts";
+import SettingsDatastore from "../datastores/settings.ts";
+import { countdownMessage, reminderMessage } from "../lib/messages.ts";
 import { insideScheduleHorizon, scheduleSlackMessage } from "../lib/reminder_schedule.ts";
 import { dateKey, jstDateParts } from "../lib/time.ts";
+
+const LATE_RECOVERY_MS = 30 * 60 * 1000;
 
 export const KosenDailyFunction = DefineFunction({
   callback_id: "kosen_daily_function",
@@ -20,9 +22,14 @@ export default SlackFunction(KosenDailyFunction, async ({ inputs, client }) => {
     datastore: SettingsDatastore.name,
     id: "global",
   });
-  if (!settingsResult.ok || !settingsResult.item) return { outputs: {} };
+  if (!settingsResult.ok || !settingsResult.item) {
+    return { outputs: {} };
+  }
+
   const settings = settingsResult.item;
-  if (Number(inputs.revision) !== Number(settings.revision)) return { outputs: {} };
+  if (Number(inputs.revision) !== Number(settings.revision)) {
+    return { outputs: {} };
+  }
 
   const now = Date.now();
   const pending = await client.apps.datastore.query({
@@ -33,16 +40,63 @@ export default SlackFunction(KosenDailyFunction, async ({ inputs, client }) => {
     limit: 100,
   });
 
-  if (pending.ok) {
+  if (!pending.ok) {
+    console.error("Failed to query pending reminders", pending.error);
+  } else {
     for (const reminder of pending.items ?? []) {
       const at = Number(reminder.scheduled_at);
-      if (at <= now && reminder.schedule_state === "scheduled") {
-        await client.apps.datastore.put({
-          datastore: RemindersDatastore.name,
-          item: { ...reminder, status: "notified", notified_at: now, updated_at: now },
-        });
-        continue;
+
+      if (at <= now) {
+        if (reminder.schedule_state === "scheduled") {
+          await client.apps.datastore.put({
+            datastore: RemindersDatastore.name,
+            item: {
+              ...reminder,
+              status: "notified",
+              notified_at: now,
+              updated_at: now,
+            },
+          });
+          continue;
+        }
+
+        if (reminder.schedule_state === "queued") {
+          const lateBy = now - at;
+          if (lateBy <= LATE_RECOVERY_MS) {
+            const posted = await client.chat.postMessage({
+              channel: reminder.channel_id,
+              text:
+                `⏰ *遅延したリマインダー*\n\n${reminderMessage(
+                  String(reminder.title),
+                  String(reminder.scheduled_date),
+                  String(reminder.scheduled_time),
+                )}\n\nBot側の予約処理が遅れたため、予定時刻後に通知しました。`,
+            });
+            if (posted.ok) {
+              await client.apps.datastore.put({
+                datastore: RemindersDatastore.name,
+                item: {
+                  ...reminder,
+                  status: "notified",
+                  notified_at: now,
+                  updated_at: now,
+                },
+              });
+            }
+          } else {
+            await client.apps.datastore.put({
+              datastore: RemindersDatastore.name,
+              item: {
+                ...reminder,
+                status: "expired",
+                updated_at: now,
+              },
+            });
+          }
+          continue;
+        }
       }
+
       if (reminder.schedule_state === "queued" && at > now && insideScheduleHorizon(at, now)) {
         try {
           const scheduledMessageId = await scheduleSlackMessage(client, {
@@ -52,7 +106,7 @@ export default SlackFunction(KosenDailyFunction, async ({ inputs, client }) => {
             scheduled_time: String(reminder.scheduled_time),
             channel_id: String(reminder.channel_id),
           });
-          await client.apps.datastore.put({
+          const saved = await client.apps.datastore.put({
             datastore: RemindersDatastore.name,
             item: {
               ...reminder,
@@ -61,6 +115,13 @@ export default SlackFunction(KosenDailyFunction, async ({ inputs, client }) => {
               updated_at: now,
             },
           });
+          if (!saved.ok) {
+            await client.chat.deleteScheduledMessage({
+              channel: reminder.channel_id,
+              scheduled_message_id: scheduledMessageId,
+            });
+            console.error("Failed to persist scheduled reminder", reminder.id, saved.error);
+          }
         } catch (error) {
           console.error("Failed to schedule queued reminder", reminder.id, error);
         }
@@ -69,18 +130,34 @@ export default SlackFunction(KosenDailyFunction, async ({ inputs, client }) => {
   }
 
   const today = dateKey(jstDateParts(new Date(now)));
-  if (settings.last_countdown_date === today) return { outputs: {} };
-  const message = countdownMessage(String(settings.exam_date), new Date(now));
-  if (!message) return { outputs: {} };
+  if (settings.last_countdown_date === today) {
+    return { outputs: {} };
+  }
 
-  const posted = await client.chat.postMessage({ channel: settings.channel_id, text: message });
+  const message = countdownMessage(String(settings.exam_date), new Date(now));
+  if (!message) {
+    return { outputs: {} };
+  }
+
+  const posted = await client.chat.postMessage({
+    channel: settings.channel_id,
+    text: message,
+  });
   if (!posted.ok) {
     return { error: `カウントダウン投稿に失敗しました: ${posted.error ?? "unknown_error"}` };
   }
 
-  await client.apps.datastore.put({
+  const saved = await client.apps.datastore.put({
     datastore: SettingsDatastore.name,
-    item: { ...settings, last_countdown_date: today, updated_at: now },
+    item: {
+      ...settings,
+      last_countdown_date: today,
+      updated_at: now,
+    },
   });
+  if (!saved.ok) {
+    console.error("Failed to persist last countdown date", saved.error);
+  }
+
   return { outputs: {} };
 });
